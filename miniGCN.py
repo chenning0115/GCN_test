@@ -6,10 +6,15 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import tensorflow as tf
-import scipy.io as scio 
+import hdf5storage as scio 
 import scipy.io as sio
 from tf_utils import random_mini_batches_GCN
 from tensorflow.python.framework import ops
+import scipy 
+import h5py
+
+class_num = 16
+spectral = 103
 
 def convert_to_one_hot(Y, C):
     Y = np.eye(C)[Y.reshape(-1)].T
@@ -28,11 +33,11 @@ def initialize_parameters():
    
     tf.set_random_seed(1)
 
-    x_w1 = tf.get_variable("x_w1", [200,128], initializer = tf.contrib.layers.xavier_initializer(seed = 1))
+    x_w1 = tf.get_variable("x_w1", [spectral,128], initializer = tf.contrib.layers.xavier_initializer(seed = 1))
     x_b1 = tf.get_variable("x_b1", [128], initializer = tf.zeros_initializer())
 
-    x_w2 = tf.get_variable("x_w2", [128,16], initializer = tf.contrib.layers.xavier_initializer(seed = 1))
-    x_b2 = tf.get_variable("x_b2", [16], initializer = tf.zeros_initializer())    
+    x_w2 = tf.get_variable("x_w2", [128,class_num], initializer = tf.contrib.layers.xavier_initializer(seed = 1))
+    x_b2 = tf.get_variable("x_b2", [class_num], initializer = tf.zeros_initializer())    
 
     
     parameters = {"x_w1": x_w1,
@@ -89,7 +94,7 @@ def network_accuracy(x_out, y_in):
          
     return accuracy
     
-def train_mynetwork(x_train, x_test, y_train, y_test, L_train, L_test, learning_rate_base = 0.001, beta_reg = 0.001, num_epochs = 200, minibatch_size = 32, print_cost = True):
+def train_mynetwork(x_train, x_test, y_train, y_test, L_train, L_test, learning_rate_base = 0.001, beta_reg = 0.001, num_epochs = 500, minibatch_size = 32, print_cost = True):
     
     ops.reset_default_graph()    
     tf.set_random_seed(1)                          
@@ -141,13 +146,14 @@ def train_mynetwork(x_train, x_test, y_train, y_test, L_train, L_test, learning_
                 # IMPORTANT: The line that runs the graph on a minibatch.
                 # Run the session to execute the "optimizer" and the "cost", the feedict should contain a minibatch for (X,Y).
                 _, minibatch_cost, minibatch_acc = sess.run([optimizer, cost, accuracy], feed_dict={x_in: batch_x, y_in: batch_y, lap_train: batch_l, isTraining: True})           
+                print("epoch=%s, train_cost=%s, train_acc=%s" % (epoch, minibatch_cost, minibatch_acc))
                 epoch_cost += minibatch_cost 
                 epoch_acc += minibatch_acc
 
             epoch_cost_train = epoch_cost / (num_minibatches+ 1) 
             epoch_acc_train = epoch_acc / (num_minibatches+ 1) 
 
-           
+            print("epoch=%s" % epoch)
             if print_cost == True and epoch % 50 == 0:
                 features, epoch_cost_test, epoch_acc_test = sess.run([x_out, cost, accuracy], feed_dict={x_in: x_test, y_in: y_test, lap_train: L_test, isTraining: False})
                 print ("epoch %i: Train_loss: %f, Val_loss: %f, Train_acc: %f, Val_acc: %f" % (epoch, epoch_cost_train, epoch_cost_test, epoch_acc_train, epoch_acc_test))
@@ -159,20 +165,20 @@ def train_mynetwork(x_train, x_test, y_train, y_test, L_train, L_test, learning_
                 val_acc.append(epoch_acc_test)
 
         # plot the cost      
-        plt.plot(np.squeeze(costs))
-        plt.plot(np.squeeze(costs_dev))
-        plt.ylabel('cost')
-        plt.xlabel('iterations (per tens)')
-        plt.title("Learning rate =" + str(learning_rate))
-        plt.show()
+        # plt.plot(np.squeeze(costs))
+        # plt.plot(np.squeeze(costs_dev))
+        # plt.ylabel('cost')
+        # plt.xlabel('iterations (per tens)')
+        # plt.title("Learning rate =" + str(learning_rate))
+        # plt.show()
         
         # plot the accuracy 
-        plt.plot(np.squeeze(train_acc))
-        plt.plot(np.squeeze(val_acc))
-        plt.ylabel('accuracy')
-        plt.xlabel('iterations (per tens)')
-        plt.title("Learning rate =" + str(learning_rate))
-        plt.show()
+        # plt.plot(np.squeeze(train_acc))
+        # plt.plot(np.squeeze(val_acc))
+        # plt.ylabel('accuracy')
+        # plt.xlabel('iterations (per tens)')
+        # plt.title("Learning rate =" + str(learning_rate))
+        # plt.show()
       
         # lets save the parameters in a variable
         parameters = sess.run(parameters)
@@ -181,28 +187,63 @@ def train_mynetwork(x_train, x_test, y_train, y_test, L_train, L_test, learning_
        
         return parameters, val_acc, features
 
-
-Train_X = scio.loadmat('HSI_GCN/Train_X.mat')
-TrLabel = scio.loadmat('HSI_GCN/TrLabel.mat')
-Test_X = scio.loadmat('HSI_GCN/Test_X.mat')
-TeLabel = scio.loadmat('HSI_GCN/TeLabel.mat')
-Train_L = scio.loadmat('HSI_GCN/Train_L.mat')
-Test_L = scio.loadmat('HSI_GCN/Test_L.mat')
-
-
-Train_X = Train_X['Train_X']
-Test_X = Test_X['Test_X']
-TrLabel = TrLabel['TrLabel']
-TeLabel = TeLabel['TeLabel']
-
-Train_L = Train_L['Train_L']
-Test_L = Test_L['Test_L']
-
-TrLabel = convert_to_one_hot(TrLabel-1, 16)
-TrLabel = TrLabel.T
-TeLabel = convert_to_one_hot(TeLabel-1, 16)   
-TeLabel = TeLabel.T
+# Method 1: uses h5py (WORKS)
+def read_sparse(fname):
+    f1 = scio.loadmat(fname)
+    a = f1['Test_L']
+    data,ir,jc = list(a[0])
+    M = scipy.sparse.csc_matrix((data, ir, jc))
+    cc = M.toarray() 
+    return cc
 
 
-parameters, val_acc, features = train_mynetwork(Train_X, Test_X, TrLabel, TeLabel, Train_L, Test_L)
-sio.savemat('features.mat', {'features': features})
+def run_one(sign, sample_num):
+    pp ='C:/charnix/codes/vscodes/diffusion_new/hyperclassification/data/miniGCN/'
+    prefix = "%s/%s/%s" % (pp, sign, sample_num)
+    # prefix = "HSI_GCN"
+    Train_X = scio.loadmat('%s/Train_X.mat' % prefix)
+    TrLabel = scio.loadmat('%s/TrLabel.mat' % prefix)
+    Test_X = scio.loadmat('%s/Test_X.mat' % prefix)
+    TeLabel = scio.loadmat('%s/TeLabel.mat' % prefix)
+    Train_L = scio.loadmat('%s/Train_L.mat' % prefix)
+    # Test_L = scio.loadmat('%s/Test_L.mat' % prefix)
+    Test_L = read_sparse('%s/Test_L.mat' % prefix)
+    # print(Test_L)
+
+    Train_X = Train_X['Train_X']
+    Test_X = Test_X['Test_X']
+    TrLabel = TrLabel['TrLabel'].astype(np.int8)
+    TeLabel = TeLabel['TeLabel'].astype(np.int8)
+
+    Train_L = Train_L['Train_L']
+    # Test_L = Test_L['Test_L']
+    print(Test_L.shape, Test_L[0].shape, Test_L.dtype, Test_L[0].dtype, Test_L.size)
+    TrLabel = convert_to_one_hot(TrLabel-1, class_num)
+    TrLabel = TrLabel.T
+    TeLabel = convert_to_one_hot(TeLabel-1, class_num)   
+    TeLabel = TeLabel.T
+
+    
+    print(Train_X.shape, Test_X.shape, Train_L.shape, Test_L.shape, TeLabel.shape)
+    print(Train_X.dtype, Test_X.dtype, Train_L.dtype, Test_L.dtype, TeLabel.dtype)
+    print('chenning', type(Test_X), type(TeLabel), type(Test_L))
+    parameters, val_acc, features = train_mynetwork(Train_X, Test_X, TrLabel, TeLabel, Train_L, Test_L)
+    sio.savemat('%s/features.mat' % prefix, {'features': features})
+
+signtonum = {
+    'Indian' : 16,
+    'Pavia' : 9,
+    'Salinas': 16
+}
+
+signtospe = {
+    'Indian' : 200,
+    'Pavia' : 103,
+    'Salinas': 204
+}
+
+for s in ['Salinas']:
+    spectral = signtospe[s]
+    class_num = signtonum[s]
+    for n in [10, 20, 30, 40, 50, 60, 70, 80]:
+        run_one(s, n)
